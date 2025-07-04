@@ -1,0 +1,9 @@
+Flask
+Pillow
+numpy
+opencv-python
+fpdf2
+Flask-Cors
+requests
+matplotlib
+gunicorn
