@@ -5,6 +5,7 @@ import io
 from PIL import Image, ImageDraw, ImageFont
 import traceback
 from fpdf import FPDF
+import os
 
 app = Flask(__name__)
 CORS(app)
@@ -33,42 +34,25 @@ def analyze_route():
             return jsonify({"error": "Invalid or empty JSON payload"}), 400
 
         images_b64 = data.get('images', [])
-        # In a real app, you would use the weights and mode for analysis
-        # weights = data.get('weights', {})
-        # mode = data.get('mode', 'absolute')
-
         if not images_b64:
             return jsonify({"error": "No images provided"}), 400
 
         results = []
         for i, b64_string in enumerate(images_b64):
             try:
-                # Mock analysis logic
                 score = len(b64_string) % 101 / 100 
-                
-                # Mock metrics for demonstration
                 mock_metrics = {
-                    "sharpness": score * 2000,
-                    "contrast": score * 100,
-                    "brightness": 50 + (score * 50),
-                    "entropy": 5 + (score * 3),
-                    "noise": (1 - score) * 10,
-                    "dpi": 300,
-                    "unique_colors": 5000 + (score * 10000),
-                    "colorfulness": 10 + (score * 50),
-                    "exposure_quality": score,
-                    "rule_of_thirds": score
+                    "sharpness": score * 2000, "contrast": score * 100, "brightness": 50 + (score * 50),
+                    "entropy": 5 + (score * 3), "noise": (1 - score) * 10, "dpi": 300,
+                    "unique_colors": 5000 + (score * 10000), "colorfulness": 10 + (score * 50),
+                    "exposure_quality": score, "rule_of_thirds": score
                 }
-                
-                normalized_metrics = {k: v / max(1, mock_metrics[k]) for k, v in mock_metrics.items()}
-
+                normalized_metrics = {k: v / max(1, mock_metrics.get(k, 1)) for k, v in mock_metrics.items()}
                 results.append({
-                    "index": i,
-                    "score": score * 10,
+                    "index": i, "score": score * 10,
                     "tier": "Top" if score > 0.7 else "Review" if score > 0.4 else "Reject",
-                    "metrics": mock_metrics,
-                    "normalized_metrics": normalized_metrics,
-                    "weights": data.get('weights', {}) # Pass weights back
+                    "metrics": mock_metrics, "normalized_metrics": normalized_metrics,
+                    "weights": data.get('weights', {})
                 })
             except Exception as e:
                 results.append({"index": i, "error": str(e)})
@@ -81,60 +65,52 @@ def analyze_route():
 
 @app.route('/generate-report', methods=['POST'])
 def generate_report_route():
+    temp_image_files = []
     try:
         data = request.get_json()
         if not data:
             return jsonify({"error": "Invalid or empty JSON payload"}), 400
 
         selected_results = data.get('selectedResults', [])
-        client_name = data.get('clientName', 'N/A')
-        project_name = data.get('projectName', 'N/A')
-
         if not selected_results:
             return jsonify({"error": "No results selected for the report"}), 400
 
         pdf = PDF()
         pdf.add_page()
-        pdf.set_font('Arial', '', 12)
-
-        # Report Header
+        
         pdf.set_font('Arial', 'B', 16)
-        pdf.cell(0, 10, f'Project: {project_name}', 0, 1)
+        pdf.cell(0, 10, f"Project: {data.get('projectName', 'N/A')}", 0, 1)
         pdf.set_font('Arial', '', 12)
-        pdf.cell(0, 10, f'Client: {client_name}', 0, 1)
+        pdf.cell(0, 10, f"Client: {data.get('clientName', 'N/A')}", 0, 1)
         pdf.ln(10)
 
-        # Add results to PDF
         for item in selected_results:
-            pdf.set_font('Arial', 'B', 12)
-            # The frontend sends the full data URL, so we need to decode it
             try:
+                pdf.set_font('Arial', 'B', 12)
+                pdf.cell(0, 10, f"Filename: {item.get('filename', 'N/A')}", 0, 1)
+                
                 header, encoded = item['thumbnail_b64'].split(",", 1)
                 image_data = base64.b64decode(encoded)
                 
-                # Use a unique name for the image file in memory
                 image_file_path = f"temp_image_{item['index']}.png"
+                temp_image_files.append(image_file_path)
                 with open(image_file_path, "wb") as f:
                     f.write(image_data)
                 
-                pdf.cell(0, 10, f"Filename: {item.get('filename', 'N/A')}", 0, 1)
-                pdf.image(image_file_path, x=10, y=pdf.get_y(), w=80)
-                pdf.ln(85) # Move down to avoid overlap
+                pdf.image(image_file_path, x=pdf.get_x(), w=190)
+                pdf.ln(105) # Adjust this value based on your image height to prevent overlap
+
+                pdf.set_font('Arial', '', 10)
+                pdf.cell(0, 10, f"Score: {item.get('score', 0):.2f}", 0, 1)
+                pdf.cell(0, 10, f"Tier: {item.get('tier', 'N/A')}", 0, 1)
+                pdf.ln(10)
+
             except Exception as e:
-                pdf.cell(0, 10, f"Could not display image for item {item.get('index', 'N/A')}", 0, 1)
+                pdf.cell(0, 10, f"Could not process item {item.get('index', 'N/A')}: {e}", 0, 1)
                 print(f"Error processing image for PDF: {e}")
-
-
-            pdf.set_font('Arial', '', 10)
-            pdf.cell(0, 10, f"Score: {item.get('score', 0):.2f}", 0, 1)
-            pdf.cell(0, 10, f"Tier: {item.get('tier', 'N/A')}", 0, 1)
-            pdf.ln(5)
-
-        # Create PDF in memory
-        pdf_buffer = io.BytesIO()
-        pdf_content = pdf.output(dest='S').encode('latin-1')
-        pdf_buffer.write(pdf_content)
-        pdf_buffer.seek(0)
+        
+        # Corrected line: removed the unnecessary .encode()
+        pdf_buffer = io.BytesIO(pdf.output())
         
         return send_file(
             pdf_buffer,
@@ -145,7 +121,12 @@ def generate_report_route():
 
     except Exception as e:
         traceback.print_exc()
-        return jsonify({"error": f"An unexpected server error occurred during report generation: {str(e)}"}), 500
+        return jsonify({"error": f"Report generation server error: {str(e)}"}), 500
+    finally:
+        # Clean up temporary files
+        for f in temp_image_files:
+            if os.path.exists(f):
+                os.remove(f)
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5001)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5001)))
