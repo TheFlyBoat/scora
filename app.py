@@ -357,7 +357,8 @@ def sanitize_filename(name):
     return re.sub(r'[\\/*?:"<>|]', "", name)
 
 @app.route('/')
-def home(): return send_file("index.html")
+def home():
+    return "SCORA backend is running"
 
 @app.route('/scora_logo.png')
 def serve_logo(): return send_file(LOGO_PATH)
