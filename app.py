@@ -16,7 +16,17 @@ def home():
 @app.route('/analyze', methods=['POST'])
 def analyze_route():
     try:
-        data = request.get_json(force=True)
+        # Debug: Log headers and raw body
+        print("HEADERS:", dict(request.headers))
+        print("BODY:", request.get_data(as_text=True))
+
+        try:
+            data = request.get_json()
+            if not data:
+                return jsonify({"error": "Invalid or empty JSON payload"}), 400
+        except Exception as parse_error:
+            return jsonify({"error": f"Malformed JSON: {str(parse_error)}"}), 400
+
         images = data.get('images', [])
         weights = data.get('weights', {})
         mode = data.get('mode', 'absolute')
